@@ -28,55 +28,86 @@ This document provides comprehensive guidance for building and modifying the Cla
 
 ### Key Architectural Decisions
 
-1. **Client Components for Interactivity**: The Whiteboard and StickyNote components must be client components ('use client') for drag-and-drop and real-time updates.
+1. **Google OAuth Authentication**: Users sign in with Google accounts via Supabase Auth for secure identity management and real user attribution.
 
-2. **Custom Hooks Pattern**: Separate data fetching and real-time logic into custom hooks (`useNotes`, `usePresence`) for clean separation of concerns.
+2. **Client Components for Interactivity**: The Whiteboard and StickyNote components must be client components ('use client') for drag-and-drop and real-time updates.
 
-3. **Optimistic Updates**: Update UI immediately when user makes changes, then sync with Supabase to avoid lag.
+3. **Custom Hooks Pattern**: Separate data fetching and real-time logic into custom hooks (`useNotes`, `usePresence`, `useDraggable`) for clean separation of concerns.
 
-4. **No Authentication Required**: Use browser-generated UUIDs for user identification to minimize friction. Store in localStorage.
+4. **Optimistic Updates**: Update UI immediately when user makes changes, then sync with Supabase to avoid lag.
+
+5. **Broadcast Channels Over Postgres Changes**: Use Supabase Realtime Broadcast instead of Postgres Changes for instant updates without database replication overhead.
+
+6. **Singleton Channel Manager**: Prevent React Strict Mode from creating duplicate subscriptions with a singleton pattern for realtime channels.
+
+7. **Vote Tracking**: Store voted user IDs in JSONB array to prevent double voting and show who voted.
 
 ## 📁 File Structure & Responsibilities
 
 ### `/app/page.tsx`
 
-- Main page component (can be server component initially)
-- Imports and renders the Whiteboard component
-- Minimal logic, mostly layout
+- Main page component with authentication routing
+- Shows LoginPage for unauthenticated users
+- Shows Whiteboard for authenticated users
+- Uses `useAuth` hook to check authentication status
+
+### `/app/auth/callback/route.ts`
+
+- OAuth callback route handler
+- Receives OAuth code from Google
+- Redirects to home page after authentication
+- Session is automatically handled by Supabase client
+
+### `/lib/auth/AuthContext.tsx`
+
+- React context provider for authentication
+- Provides: user, session, signInWithGoogle(), signOut()
+- Listens to auth state changes via `supabase.auth.onAuthStateChange`
+- Wraps the entire app in `app/layout.tsx`
+
+### `/components/LoginPage.tsx`
+
+- Google sign-in button and landing page
+- Calls `signInWithGoogle()` from AuthContext
+- Shows loading state during authentication
 
 ### `/components/Whiteboard.tsx`
 
 - **Client component** ('use client')
 - Main canvas component that holds all sticky notes
-- Manages drag-and-drop for the canvas
-- Uses `useNotes` hook for data
-- Uses `usePresence` hook for showing active users
-- Handles zoom/pan if needed (optional feature)
+- Gets authenticated user from `useAuth()` hook
+- Passes userId and userName to `useNotes(userId, userName)`
+- Uses `usePresence({ user })` to show active users with Google names
+- Shows sign-out button in header
+- Displays real user name from Google account
 
 ### `/components/StickyNote.tsx`
 
 - **Client component**
-- Individual draggable sticky note
-- Props: id, content, position (x, y), color, category, votes, onDrag, onUpdate, onDelete, onVote
-- Uses `react-draggable` or native drag events
-- Inline editing on double-click
-- Shows vote count and vote button
+- Individual draggable sticky note with `useDraggable` hook
+- Props: note, onUpdate, onDelete, onVote, currentUserId
+- Double-click to edit content inline
+- Shows creator name (`created_by_name`) at bottom
+- Vote button disabled if user already voted (checks `voted_by` array)
+- Prevents own broadcasts from causing position jump during drag
 
 ### `/components/AddNoteButton.tsx`
 
 - **Client component**
-- Floating action button (fixed position, bottom-right)
-- Opens dialog/modal to add new note
-- Form fields: content (textarea), category (select), color (color picker or preset)
-- Calls Supabase insert on submit
+- Floating action button (fixed bottom-right)
+- Receives `onAddNote` function as prop from Whiteboard
+- Shares state with Whiteboard's useNotes hook (not independent)
+- Form fields: content, category, color picker
+- Shows form in Dialog modal from shadcn/ui
 
 ### `/components/PresenceIndicator.tsx`
 
 - **Client component**
-- Shows avatars/names of currently active users
-- Updates in real-time using presence data
-- Fixed position (top-right corner)
-- Displays count + avatars (colored circles with initials)
+- Shows colored circles with user initials from Google names
+- Updates in real-time via Supabase Presence
+- Fixed position in header (top-right)
+- Uses `getInitials()` to extract initials (e.g., "Peter Zellner" → "PZ")
+- Each user gets consistent color based on their user ID hash
 
 ### `/components/CategoryFilter.tsx`
 
@@ -99,37 +130,30 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 ```typescript
 // Custom hook that:
-// 1. Fetches initial notes from Supabase
-// 2. Subscribes to real-time changes (insert, update, delete)
-// 3. Returns: notes array, loading state, error state
-// 4. Provides methods: addNote, updateNote, deleteNote, voteNote
+// 1. Accepts userId and userName as parameters (from authenticated user)
+// 2. Fetches initial notes from Supabase
+// 3. Subscribes to Realtime Broadcast channel (not Postgres Changes)
+// 4. Handles note_added, note_updated, note_deleted, note_voted events
+// 5. Prevents duplicate notes in state
+// 6. Returns: notes, loading, error, addNote, updateNote, deleteNote, voteNote
 
-export function useNotes() {
-  const [notes, setNotes] = useState<Note[]>([]);
+export function useNotes(userId: string, userName: string) {
+  const [notes, setNotes] = useState<StickyNote[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Fetch initial data
-  useEffect(() => {
-    fetchNotes();
-  }, []);
+  // Uses singleton channel from realtimeManager
+  const channel = getNotesChannel();
 
-  // Subscribe to real-time updates
-  useEffect(() => {
-    const channel = supabase
-      .channel("notes-changes")
-      .on(
-        "postgres_changes",
-        { event: "*", schema: "public", table: "sticky_notes" },
-        handleRealtimeUpdate,
-      )
-      .subscribe();
+  // Vote tracking checks voted_by array before allowing vote
+  const voteNote = async (id: string) => {
+    const note = notes.find((n) => n.id === id);
+    if (note.voted_by.includes(userId)) {
+      return false; // Already voted
+    }
+    // Add userId to voted_by array and increment votes
+  };
 
-    return () => {
-      channel.unsubscribe();
-    };
-  }, []);
-
-  return { notes, loading, addNote, updateNote, deleteNote, voteNote };
+  return { notes, loading, error, addNote, updateNote, deleteNote, voteNote, refetch };
 }
 ```
 
@@ -137,41 +161,48 @@ export function useNotes() {
 
 ```typescript
 // Custom hook that:
-// 1. Generates/retrieves user ID from localStorage
-// 2. Broadcasts presence every 3 seconds (heartbeat)
-// 3. Subscribes to other users' presence
-// 4. Returns: activeUsers array (excluding self)
+// 1. Accepts authenticated User object from Supabase Auth
+// 2. Extracts userId, userName, and avatarUrl from user.user_metadata
+// 3. Broadcasts presence every 30 seconds (heartbeat)
+// 4. Subscribes to other users' presence via singleton channel
+// 5. Returns: activeUsers array (excluding self)
 
-export function usePresence() {
+export function usePresence({ user }: { user: User }) {
   const [activeUsers, setActiveUsers] = useState<PresenceUser[]>([]);
-  const userId = getUserId(); // from localStorage or generate
 
-  useEffect(() => {
-    // Broadcast presence
-    const interval = setInterval(() => {
-      supabase.channel("presence").track({
-        user_id: userId,
-        user_name: getUserName(),
-        online_at: new Date().toISOString(),
-      });
-    }, 3000);
+  const userId = user.id;
+  const userName = user.user_metadata?.full_name || user.email || 'Anonymous';
+  const avatarUrl = user.user_metadata?.avatar_url;
 
-    // Subscribe to presence
-    const channel = supabase
-      .channel("presence")
-      .on("presence", { event: "sync" }, () => {
-        const state = channel.presenceState();
-        setActiveUsers(processPresenceState(state));
-      })
-      .subscribe();
+  // Track presence with real Google user data
+  await channel.track({
+    user_id: userId,
+    user_name: userName,
+    avatar_url: avatarUrl,
+    online_at: new Date().toISOString(),
+  });
 
-    return () => {
-      clearInterval(interval);
-      channel.unsubscribe();
-    };
-  }, []);
+  return { activeUsers, currentUserId: userId, currentUserName: userName };
+}
+```
 
-  return activeUsers;
+### `/lib/hooks/useDraggable.ts`
+
+```typescript
+// Custom hook for drag-and-drop functionality:
+// 1. Manages local position state during drag
+// 2. Tracks isDragging state for visual feedback
+// 3. Calls onDragEnd with final position
+// 4. Prevents position updates from broadcasts during/after drag (justDragged flag)
+// 5. Uses currentPosition ref to avoid stale closures
+// 6. Only allows drag from elements with 'drag-handle' class
+
+export function useDraggable({ initialPosition, onDragEnd }) {
+  const [position, setPosition] = useState(initialPosition);
+  const [isDragging, setIsDragging] = useState(false);
+  const justDragged = useRef(false); // Prevents jump after drag
+
+  return { position, isDragging, handleMouseDown };
 }
 ```
 
@@ -179,10 +210,21 @@ export function usePresence() {
 
 ```typescript
 // Utility functions:
-// - getUserId(): Get or create user ID (localStorage)
-// - getUserName(): Get or generate user name (e.g., "User 1234")
+// - getInitials(name): Extract initials from name (e.g., "Peter Zellner" → "PZ")
 // - getRandomColor(): Return random pastel color for notes
 // - cn(): className utility (from shadcn/ui)
+// - NOTE_COLORS: Predefined pastel colors for sticky notes
+// - CATEGORY_COLORS: Tailwind classes for category badges
+```
+
+### `/lib/realtimeManager.ts`
+
+```typescript
+// Singleton channel manager to prevent duplicate subscriptions:
+// - getNotesChannel(): Returns singleton broadcast channel for notes
+// - getPresenceChannel(): Returns singleton presence channel
+// - Prevents React Strict Mode from creating duplicate subscriptions
+// - Tracks subscription state with flags
 ```
 
 ## 🗄 Database Schema
@@ -193,7 +235,10 @@ export function usePresence() {
 -- Enable UUID extension
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
--- Sticky notes table
+-- Drop existing table for clean recreation (if needed)
+DROP TABLE IF EXISTS sticky_notes;
+
+-- Sticky notes table with authentication
 CREATE TABLE sticky_notes (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   content TEXT NOT NULL,
@@ -202,7 +247,9 @@ CREATE TABLE sticky_notes (
   color VARCHAR(7) NOT NULL DEFAULT '#fef3c7',
   category VARCHAR(50) NOT NULL DEFAULT 'other',
   votes INTEGER NOT NULL DEFAULT 0,
-  created_by VARCHAR(100) NOT NULL,
+  voted_by JSONB NOT NULL DEFAULT '[]'::jsonb, -- Array of user IDs who voted
+  created_by UUID REFERENCES auth.users(id) NOT NULL, -- Google user ID
+  created_by_name VARCHAR(255) NOT NULL, -- Creator's display name from Google
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -210,34 +257,36 @@ CREATE TABLE sticky_notes (
 -- Enable Row Level Security
 ALTER TABLE sticky_notes ENABLE ROW LEVEL SECURITY;
 
--- Policy: Anyone can read
+-- Policy: Anyone (authenticated) can read
 CREATE POLICY "Anyone can read sticky notes"
   ON sticky_notes FOR SELECT
   USING (true);
 
--- Policy: Anyone can insert
-CREATE POLICY "Anyone can insert sticky notes"
+-- Policy: Authenticated users can insert
+CREATE POLICY "Authenticated users can insert sticky notes"
   ON sticky_notes FOR INSERT
-  WITH CHECK (true);
+  WITH CHECK (auth.uid() IS NOT NULL);
 
--- Policy: Anyone can update
-CREATE POLICY "Anyone can update sticky notes"
+-- Policy: Authenticated users can update (for voting and dragging)
+CREATE POLICY "Authenticated users can update sticky notes"
   ON sticky_notes FOR UPDATE
-  USING (true);
+  USING (auth.uid() IS NOT NULL);
 
--- Policy: Anyone can delete
-CREATE POLICY "Anyone can delete sticky notes"
+-- Policy: Authenticated users can delete
+CREATE POLICY "Users can delete own sticky notes"
   ON sticky_notes FOR DELETE
-  USING (true);
+  USING (auth.uid() IS NOT NULL);
 
 -- Index for faster queries
 CREATE INDEX idx_sticky_notes_created_at ON sticky_notes(created_at DESC);
-
--- Enable realtime
-ALTER PUBLICATION supabase_realtime ADD TABLE sticky_notes;
 ```
 
-**Important**: After running this schema, go to Supabase Dashboard > Database > Replication and ensure `sticky_notes` is enabled for realtime.
+**Key Changes from Original**:
+- Uses Supabase Auth (`auth.users`) instead of localStorage UUIDs
+- `voted_by` JSONB array tracks who voted (prevents double voting)
+- `created_by_name` stores Google display name
+- RLS policies require authentication
+- NO Realtime Replication needed (we use Broadcast channels instead)
 
 ## 🎨 Styling Guidelines
 
