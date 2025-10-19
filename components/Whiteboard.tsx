@@ -1,5 +1,6 @@
 'use client'
 
+import { useRef, useState, useEffect } from 'react'
 import { useNotes } from '@/lib/hooks/useNotes'
 import { usePresence } from '@/lib/hooks/usePresence'
 import { useAuth } from '@/lib/auth/AuthContext'
@@ -11,6 +12,8 @@ import { LogOut } from 'lucide-react'
 
 export function Whiteboard() {
   const { user, signOut } = useAuth()
+  const canvasRef = useRef<HTMLDivElement>(null)
+  const [bounds, setBounds] = useState({ minX: 0, minY: 0, maxX: 3000, maxY: 2000 })
 
   // Extract user info (must be before hooks)
   const currentUserName = user?.user_metadata?.full_name || user?.email || 'Anonymous'
@@ -19,6 +22,25 @@ export function Whiteboard() {
   // Always call hooks at the top level (before any early returns)
   const { notes, loading, error, addNote, updateNote, deleteNote, voteNote } = useNotes(userId, currentUserName)
   const { activeUsers } = usePresence({ user })
+
+  // Calculate canvas bounds for drag constraints
+  useEffect(() => {
+    const updateBounds = () => {
+      if (canvasRef.current) {
+        const rect = canvasRef.current.getBoundingClientRect()
+        setBounds({
+          minX: 0,
+          minY: 0,
+          maxX: rect.width,
+          maxY: rect.height,
+        })
+      }
+    }
+
+    updateBounds()
+    window.addEventListener('resize', updateBounds)
+    return () => window.removeEventListener('resize', updateBounds)
+  }, [])
 
   // Now handle conditional returns after all hooks are called
   if (!user) {
@@ -104,8 +126,8 @@ export function Whiteboard() {
       </header>
 
       {/* Whiteboard canvas */}
-      <div className="relative h-[calc(100vh-80px)] w-full overflow-auto">
-        <div className="relative min-h-full min-w-full p-8">
+      <div className="relative h-[calc(100vh-80px)] w-full overflow-hidden">
+        <div ref={canvasRef} className="relative h-full w-full p-8">
           {notes.length === 0 ? (
             <div className="flex h-full items-center justify-center">
               <div className="text-center">
@@ -126,6 +148,7 @@ export function Whiteboard() {
                 onDelete={deleteNote}
                 onVote={voteNote}
                 currentUserId={user.id}
+                bounds={bounds}
               />
             ))
           )}

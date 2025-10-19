@@ -7,16 +7,29 @@ interface Position {
   y: number
 }
 
+interface Bounds {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
 interface UseDraggableOptions {
   initialPosition: Position
   onDragStart?: () => void
   onDragEnd?: (position: Position) => void
+  bounds?: Bounds
+  noteWidth?: number
+  noteHeight?: number
 }
 
 export function useDraggable({
   initialPosition,
   onDragStart,
   onDragEnd,
+  bounds,
+  noteWidth = 256, // w-64 = 16rem = 256px
+  noteHeight = 200, // approximate height
 }: UseDraggableOptions) {
   const [position, setPosition] = useState<Position>(initialPosition)
   const [isDragging, setIsDragging] = useState(false)
@@ -24,6 +37,16 @@ export function useDraggable({
   const elementStartPos = useRef<Position>(initialPosition)
   const currentPosition = useRef<Position>(initialPosition)
   const justDragged = useRef(false)
+
+  // Helper function to constrain position within bounds
+  const constrainPosition = useCallback((pos: Position): Position => {
+    if (!bounds) return pos
+
+    return {
+      x: Math.max(bounds.minX, Math.min(pos.x, bounds.maxX - noteWidth)),
+      y: Math.max(bounds.minY, Math.min(pos.y, bounds.maxY - noteHeight)),
+    }
+  }, [bounds, noteWidth, noteHeight])
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
@@ -52,10 +75,12 @@ export function useDraggable({
       const deltaX = e.clientX - dragStartPos.current.x
       const deltaY = e.clientY - dragStartPos.current.y
 
-      const newPosition = {
+      const unconstrained = {
         x: elementStartPos.current.x + deltaX,
         y: elementStartPos.current.y + deltaY,
       }
+
+      const newPosition = constrainPosition(unconstrained)
 
       currentPosition.current = newPosition
       setPosition(newPosition)
@@ -80,7 +105,7 @@ export function useDraggable({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, onDragEnd])
+  }, [isDragging, onDragEnd, constrainPosition])
 
   // Update position when initialPosition changes (for external updates)
   useEffect(() => {

@@ -12,15 +12,17 @@ interface StickyNoteProps {
   onDelete: (id: string) => Promise<boolean>
   onVote: (id: string) => Promise<boolean>
   currentUserId: string
+  bounds?: { minX: number; minY: number; maxX: number; maxY: number }
 }
 
-export function StickyNote({ note, onUpdate, onDelete, onVote, currentUserId }: StickyNoteProps) {
+export function StickyNote({ note, onUpdate, onDelete, onVote, currentUserId, bounds }: StickyNoteProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editContent, setEditContent] = useState(note.content)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const { position, isDragging, handleMouseDown } = useDraggable({
     initialPosition: { x: note.position_x, y: note.position_y },
+    bounds,
     onDragEnd: async (pos) => {
       // Update position in database
       await onUpdate(note.id, {
