@@ -153,6 +153,7 @@ export function useNotes(userId: string, userName: string) {
         position_y: position_y ?? Math.random() * 300 + 100,
         created_by: userId,
         created_by_name: userName,
+        // Don't set votes - the database trigger will set it to 0 based on empty voted_by array
       }
 
       const { data, error } = await supabase
@@ -256,43 +257,46 @@ export function useNotes(userId: string, userName: string) {
     }
   }
 
-  // Vote on a note
+  // Vote or unvote on a note (toggle)
   const voteNote = async (id: string): Promise<boolean> => {
     try {
       // Get current note
       const note = notes.find((n) => n.id === id)
       if (!note) return false
 
-      // Check if user already voted
-      if (note.voted_by.includes(userId)) {
-        console.log('User already voted on this note')
-        return false
-      }
+      // Check if user already voted - if so, remove vote
+      const hasVoted = note.voted_by.includes(userId)
+      const newVotedBy = hasVoted
+        ? note.voted_by.filter(uid => uid !== userId) // Remove vote
+        : [...note.voted_by, userId] // Add vote
 
-      const newVotedBy = [...note.voted_by, userId]
-      const newVotes = newVotedBy.length
-
-      const { error } = await supabase
+      // Update only voted_by - the database trigger will sync the votes count
+      const { data, error } = await supabase
         .from('sticky_notes')
-        .update({ votes: newVotes, voted_by: newVotedBy })
+        .update({ voted_by: newVotedBy })
         .eq('id', id)
+        .select()
+        .single()
 
       if (error) throw error
 
-      // Optimistically update local state first
+      // Use the data returned from database (which has the trigger-computed vote count)
+      const updatedNote = data
+
+      // Optimistically update local state with database result
       setNotes((prev) =>
         prev.map((note) =>
-          note.id === id ? { ...note, votes: newVotes, voted_by: newVotedBy } : note
+          note.id === id ? updatedNote : note
         )
       )
 
       // Broadcast to other clients using the same channel
       if (channelRef.current && isSubscribedRef.current) {
-        console.log('Broadcasting note_voted')
+        console.log(`Broadcasting note_voted (${hasVoted ? 'removed' : 'added'} vote)`)
         await channelRef.current.send({
           type: 'broadcast',
           event: 'note-change',
-          payload: { type: 'note_voted', id, votes: newVotes, voted_by: newVotedBy } as BroadcastAction,
+          payload: { type: 'note_voted', id, votes: updatedNote.votes, voted_by: updatedNote.voted_by } as BroadcastAction,
         })
       }
 

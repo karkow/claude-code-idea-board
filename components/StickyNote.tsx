@@ -124,13 +124,12 @@ export function StickyNote({ note, onUpdate, onDelete, onVote, currentUserId }: 
       <div className="flex items-center justify-between border-t border-black/5 px-3 py-2">
         <button
           onClick={handleVote}
-          disabled={hasVoted}
           className={`flex items-center gap-1 rounded px-2 py-1 text-xs font-medium transition-colors ${
             hasVoted
-              ? 'bg-blue-100 text-blue-700 cursor-not-allowed'
+              ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
               : 'text-slate-600 hover:bg-black/10'
           }`}
-          title={hasVoted ? "You've already voted" : "Vote for this idea"}
+          title={hasVoted ? "Click to remove your vote" : "Vote for this idea"}
         >
           <ThumbsUp className={`h-3 w-3 ${hasVoted ? 'fill-current' : ''}`} />
           <span>{note.votes}</span>
