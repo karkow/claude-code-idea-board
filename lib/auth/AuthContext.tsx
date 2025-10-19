@@ -53,9 +53,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }
 
   const signOut = async () => {
-    const { error } = await supabase.auth.signOut()
-    if (error) {
-      console.error('Error signing out:', error.message)
+    try {
+      const { error } = await supabase.auth.signOut()
+
+      // Ignore "session missing" errors - the user is already signed out
+      if (error && error.message !== 'Auth session missing!') {
+        console.error('Error signing out:', error.message)
+      }
+    } catch (err) {
+      // Catch any unexpected errors
+      console.error('Unexpected error during sign out:', err)
+    } finally {
+      // Always clear local state, even if signOut fails
+      setUser(null)
+      setSession(null)
+
+      // Clear any localStorage data
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('supabase.auth.token')
+      }
     }
   }
 
