@@ -24,7 +24,9 @@ export type Database = {
           color: string
           category: string
           votes: number
+          voted_by: string[] // Array of user IDs who voted
           created_by: string
+          created_by_name: string // Creator's display name
           created_at: string
           updated_at: string
         }
@@ -36,7 +38,9 @@ export type Database = {
           color?: string
           category?: string
           votes?: number
+          voted_by?: string[]
           created_by: string
+          created_by_name: string
           created_at?: string
           updated_at?: string
         }
@@ -48,7 +52,9 @@ export type Database = {
           color?: string
           category?: string
           votes?: number
+          voted_by?: string[]
           created_by?: string
+          created_by_name?: string
           created_at?: string
           updated_at?: string
         }

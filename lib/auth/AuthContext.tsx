@@ -10,7 +10,6 @@ interface AuthContextType {
   loading: boolean
   signInWithGoogle: () => Promise<void>
   signOut: () => Promise<void>
-  supabase: typeof supabase
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -67,11 +66,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Always clear local state, even if signOut fails
       setUser(null)
       setSession(null)
-
-      // Clear any localStorage data
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('supabase.auth.token')
-      }
     }
   }
 
@@ -83,7 +77,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         loading,
         signInWithGoogle,
         signOut,
-        supabase,
       }}
     >
       {children}

@@ -80,7 +80,7 @@ export function useDraggable({
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
-  }, [isDragging, position, onDragEnd])
+  }, [isDragging, onDragEnd])
 
   // Update position when initialPosition changes (for external updates)
   useEffect(() => {
@@ -97,6 +97,7 @@ export function useDraggable({
       currentPosition.current = initialPosition
       return initialPosition
     })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialPosition.x, initialPosition.y, isDragging])
 
   return {

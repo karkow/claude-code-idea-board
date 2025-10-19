@@ -1,10 +1,21 @@
 'use client'
 
+import { useState } from 'react'
 import { useAuth } from '@/lib/auth/AuthContext'
 import { Button } from '@/components/ui/button'
 
 export function LoginPage() {
   const { signInWithGoogle, loading } = useAuth()
+  const [error, setError] = useState<string | null>(null)
+
+  const handleSignIn = async () => {
+    try {
+      setError(null)
+      await signInWithGoogle()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sign in')
+    }
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
@@ -18,8 +29,14 @@ export function LoginPage() {
           </p>
         </div>
 
+        {error && (
+          <div className="rounded-lg bg-red-50 p-3 text-sm text-red-600">
+            {error}
+          </div>
+        )}
+
         <Button
-          onClick={signInWithGoogle}
+          onClick={handleSignIn}
           disabled={loading}
           className="w-full"
           size="lg"

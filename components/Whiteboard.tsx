@@ -12,17 +12,20 @@ import { LogOut } from 'lucide-react'
 export function Whiteboard() {
   const { user, signOut } = useAuth()
 
-  // Debug: Log user object
-  console.log('Whiteboard render - user:', user)
-  console.log('Whiteboard render - user?.id:', user?.id)
+  // Extract user info (must be before hooks)
+  const currentUserName = user?.user_metadata?.full_name || user?.email || 'Anonymous'
+  const userId = user?.id || ''
 
+  // Always call hooks at the top level (before any early returns)
+  const { notes, loading, error, addNote, updateNote, deleteNote, voteNote } = useNotes(userId, currentUserName)
+  const { activeUsers } = usePresence({ user })
+
+  // Now handle conditional returns after all hooks are called
   if (!user) {
-    console.log('No user, returning null')
     return null
   }
 
   if (!user.id) {
-    console.log('User exists but no ID, returning loading...')
     return (
       <div className="flex h-screen items-center justify-center bg-gradient-to-br from-slate-50 to-slate-100">
         <div className="text-center">
@@ -32,14 +35,6 @@ export function Whiteboard() {
       </div>
     )
   }
-
-  const currentUserName = user.user_metadata?.full_name || user.email || 'Anonymous'
-  const userId = user.id
-
-  console.log('About to call useNotes with userId:', userId, 'userName:', currentUserName)
-
-  const { notes, loading, error, addNote, updateNote, deleteNote, voteNote } = useNotes(userId, currentUserName)
-  const { activeUsers } = usePresence({ user })
 
   if (loading) {
     return (

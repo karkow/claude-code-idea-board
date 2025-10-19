@@ -7,18 +7,11 @@ import { StickyNote, BroadcastAction } from '@/lib/types'
 import { getNotesChannel, subscribeToNotesChannel, isNotesChannelSubscribed, markNotesChannelSubscribed } from '@/lib/realtimeManager'
 
 export function useNotes(userId: string, userName: string) {
-  console.log('[useNotes] Hook called with userId:', userId, 'userName:', userName)
-
   const [notes, setNotes] = useState<StickyNote[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const channelRef = useRef<RealtimeChannel | null>(null)
   const isSubscribedRef = useRef(false)
-
-  // Validate userId
-  if (!userId) {
-    console.error('[useNotes] ERROR: userId is undefined or empty!')
-  }
 
   // Fetch all notes from the database
   const fetchNotes = useCallback(async () => {
@@ -59,14 +52,12 @@ export function useNotes(userId: string, userName: string) {
       // Supabase allows multiple listeners on the same channel
       channel.on('broadcast', { event: 'note-change' }, (payload) => {
         const action = payload.payload as BroadcastAction
-        console.log('Received broadcast:', action.type, action)
 
         switch (action.type) {
           case 'note_added':
             setNotes((prev) => {
               // Prevent duplicates
               if (prev.some(n => n.id === action.note.id)) return prev
-              console.log('Adding note to state:', action.note.id)
               return [action.note, ...prev]
             })
             break
@@ -95,18 +86,15 @@ export function useNotes(userId: string, userName: string) {
 
       // Only call subscribe() if not already subscribed
       if (!isNotesChannelSubscribed()) {
-        console.log('[useNotes] Subscribing to channel for the first time')
         channel.subscribe((status) => {
-          console.log('Notes channel status:', status)
           if (status === 'SUBSCRIBED') {
             markNotesChannelSubscribed()
-            console.log('Successfully subscribed to notes-sync channel')
-          } else if (status === 'CLOSED') {
-            console.warn('Notes channel closed')
+          } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+            // Reset subscription state on error
+            markNotesChannelSubscribed()
+            setError('Real-time connection lost. Please refresh the page.')
           }
         })
-      } else {
-        console.log('[useNotes] Channel already subscribed, skipping subscribe()')
       }
 
       isSubscribedRef.current = true
@@ -134,15 +122,13 @@ export function useNotes(userId: string, userName: string) {
     try {
       // Check if user is authenticated
       const { data: { session } } = await supabase.auth.getSession()
-      console.log('=== ADD NOTE DEBUG ===')
-      console.log('Session exists:', !!session)
-      console.log('Session user:', session?.user)
-      console.log('Session access_token:', session?.access_token ? 'EXISTS' : 'MISSING')
-      console.log('Trying to insert with userId:', userId)
-      console.log('Trying to insert with userName:', userName)
 
       if (!session) {
         throw new Error('No active session. Please sign in again.')
+      }
+
+      if (!userId || !userName) {
+        throw new Error('User information is missing. Please refresh the page.')
       }
 
       const newNote = {
@@ -162,17 +148,13 @@ export function useNotes(userId: string, userName: string) {
         .select()
         .single()
 
-      if (error) {
-        console.error('Supabase insert error:', error)
-        throw error
-      }
+      if (error) throw error
 
       // Optimistically update local state first
       setNotes((prev) => [data, ...prev])
 
       // Broadcast to other clients using the same channel
       if (channelRef.current && isSubscribedRef.current) {
-        console.log('Broadcasting note_added')
         await channelRef.current.send({
           type: 'broadcast',
           event: 'note-change',
@@ -210,7 +192,6 @@ export function useNotes(userId: string, userName: string) {
 
       // Broadcast to other clients using the same channel
       if (channelRef.current && isSubscribedRef.current) {
-        console.log('Broadcasting note_updated')
         await channelRef.current.send({
           type: 'broadcast',
           event: 'note-change',
@@ -241,7 +222,6 @@ export function useNotes(userId: string, userName: string) {
 
       // Broadcast to other clients using the same channel
       if (channelRef.current && isSubscribedRef.current) {
-        console.log('Broadcasting note_deleted')
         await channelRef.current.send({
           type: 'broadcast',
           event: 'note-change',
@@ -292,7 +272,6 @@ export function useNotes(userId: string, userName: string) {
 
       // Broadcast to other clients using the same channel
       if (channelRef.current && isSubscribedRef.current) {
-        console.log(`Broadcasting note_voted (${hasVoted ? 'removed' : 'added'} vote)`)
         await channelRef.current.send({
           type: 'broadcast',
           event: 'note-change',

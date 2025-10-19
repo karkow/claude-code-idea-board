@@ -11,7 +11,6 @@ let presenceSubscribed = false
 
 export function getNotesChannel() {
   if (!notesChannel) {
-    console.log('[RealtimeManager] Creating notes channel for the first time')
     notesChannel = supabase.channel('notes-sync', {
       config: {
         broadcast: { self: false },
@@ -33,13 +32,10 @@ export function markNotesChannelSubscribed() {
 
 export function subscribeToNotesChannel() {
   notesSubscribers++
-  console.log('[RealtimeManager] Notes channel subscribers:', notesSubscribers)
   return () => {
     notesSubscribers--
-    console.log('[RealtimeManager] Notes channel subscribers:', notesSubscribers)
     // Only unsubscribe when all components have unmounted
     if (notesSubscribers === 0 && notesChannel) {
-      console.log('[RealtimeManager] All subscribers gone, unsubscribing notes channel')
       notesChannel.unsubscribe()
       notesChannel = null
       notesSubscribed = false
@@ -47,16 +43,11 @@ export function subscribeToNotesChannel() {
   }
 }
 
-export function getPresenceChannel(userId: string) {
+export function getPresenceChannel() {
   if (!presenceChannel) {
-    console.log('[RealtimeManager] Creating presence channel for the first time')
-    presenceChannel = supabase.channel('online-users', {
-      config: {
-        presence: {
-          key: userId,
-        },
-      },
-    })
+    // Note: Presence channel doesn't need userId in config - it's tracked per client
+    // The key should be unique per client connection, not per user
+    presenceChannel = supabase.channel('online-users')
     presenceSubscribed = false
   }
   return presenceChannel
@@ -72,13 +63,10 @@ export function markPresenceChannelSubscribed() {
 
 export function subscribeToPresenceChannel() {
   presenceSubscribers++
-  console.log('[RealtimeManager] Presence channel subscribers:', presenceSubscribers)
   return () => {
     presenceSubscribers--
-    console.log('[RealtimeManager] Presence channel subscribers:', presenceSubscribers)
     // Only unsubscribe when all components have unmounted
     if (presenceSubscribers === 0 && presenceChannel) {
-      console.log('[RealtimeManager] All subscribers gone, unsubscribing presence channel')
       presenceChannel.untrack()
       presenceChannel.unsubscribe()
       presenceChannel = null

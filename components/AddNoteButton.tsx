@@ -21,17 +21,17 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
-import { NOTE_COLORS, CATEGORIES } from '@/lib/utils'
+import { NOTE_COLORS } from '@/lib/utils'
 
 interface AddNoteButtonProps {
-  onAddNote: (content: string, category: string, color: string) => Promise<void>
+  onAddNote: (content: string, category: string, color: string) => Promise<unknown>
 }
 
 export function AddNoteButton({ onAddNote }: AddNoteButtonProps) {
   const [open, setOpen] = useState(false)
   const [content, setContent] = useState('')
   const [category, setCategory] = useState('other')
-  const [color, setColor] = useState(NOTE_COLORS.yellow)
+  const [color, setColor] = useState<string>(NOTE_COLORS.yellow)
   const [isSubmitting, setIsSubmitting] = useState(false)
 
   const handleSubmit = async (e: React.FormEvent) => {
